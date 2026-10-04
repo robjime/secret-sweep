@@ -72,13 +72,46 @@ Las pruebas crean repositorios temporales con claves **falsas** (la clave de eje
 
 Si se detecta un secreto real, borrarlo del último commit **no basta**: hay que **revocarlo y generar uno nuevo** en el servicio correspondiente, y solo después, si procede, limpiar el historial.
 
-## Hoja de ruta
+## Configuración
 
-- [x] **Fase 1:** escáner local del historial de un repositorio
-- [ ] **Fase 2:** reglas en YAML y lista de exclusiones (falsos positivos)
-- [ ] **Fase 3:** conexión con la API de GitHub para listar, clonar y escanear todos los repositorios propios
-- [ ] **Fase 4:** avisos por Discord (webhook)
-- [ ] **Fase 5:** informe en Markdown y comparativa con herramientas como Gitleaks
+Las reglas de detección y las exclusiones no están en el código, sino en `src/rules.yaml`, así que se pueden modificar sin tocar Python.
+
+### Reglas
+
+Cada regla tiene un nombre y una expresión regular:
+
+```yaml
+rules:
+  - name: AWS Access Key ID
+    pattern: '\bAKIA[0-9A-Z]{16}\b'
+```
+
+Para añadir una regla, basta con añadir otra entrada a la lista. Si la expresión regular es inválida, la herramienta se detiene al arrancar y dice qué regla falla.
+
+> En YAML, las comillas simples dentro de un texto entre comillas simples se escriben duplicadas (`''`).
+
+### Exclusiones (falsos positivos)
+
+Hay tres formas de ignorar un hallazgo, de más a menos recomendable:
+
+1. **Patrón sobre el texto detectado** (`allowlist.patterns`): si el texto que coincidió con una regla también coincide con este patrón, se ignora. Es la opción más precisa.
+2. **Ruta de archivo** (`allowlist.paths`): ignora archivos enteros (por ejemplo `docs/*`). Úsala con cuidado: un secreto real en esa ruta pasaría desapercibido.
+3. **Marcador en la línea**: añadir `secret-sweep: ignore` en un comentario de esa línea.
+
+```yaml
+allowlist:
+  patterns:
+    - 'AKIAIOSFODNN7EXAMPLE'
+  paths: []
+```
+
+### Usar otro archivo de configuración
+
+Por defecto se usa `src/rules.yaml`. Con `--config` se indica otro:
+
+```powershell
+python src\main.py C:\ruta\al\repositorio --config mi-config.yaml
+```
 
 ## Aviso de uso
 

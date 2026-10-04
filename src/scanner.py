@@ -4,21 +4,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-# Cada regla: nombre legible -> expresión regular
-RULES: dict[str, re.Pattern] = {
-    "AWS Access Key ID": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
-    "GitHub token": re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b"),
-    "Clave privada": re.compile(
-        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"
-    ),
-    "Webhook de Discord": re.compile(
-        r"https://discord(?:app)?\.com/api/webhooks/\d+/[\w-]+"
-    ),
-    "Token de bot de Telegram": re.compile(r"\b\d{8,10}:[A-Za-z0-9_-]{35}\b"),
-    "Contraseña o clave asignada": re.compile(
-        r"""(?i)[\w-]*(?:password|passwd|pwd|secret|api[_-]?key|token)[\w-]*["']?\s*[:=]\s*["'][^"'\s]{6,}["']"""
-    ),
-}
+from config import Config
+
+IGNORE_MARKER = "secret-sweep: ignore"
 
 # Cabecera de bloque de un diff: @@ -12,3 +40,5 @@  -> nos interesa el 40
 HUNK_RE = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -37,14 +25,18 @@ def mask(secret: str) -> str:
     return secret[:4] + "*" * 8
 
 
-def check_line(text: str, commit: str, file: str, line_no: int) -> Iterator[Finding]:
-    for name, pattern in RULES.items():
+def check_line(
+    text: str, commit: str, file: str, line_no: int, config: Config
+) -> Iterator[Finding]:
+    if IGNORE_MARKER in text:
+        return
+    for name, pattern in config.rules.items():
         match = pattern.search(text)
-        if match:
+        if match and not config.value_allowed(match.group(0)):
             yield Finding(name, commit, file, line_no, mask(match.group(0)))
 
 
-def scan_repo(repo: Path) -> list[Finding]:
+def scan_repo(repo: Path, config: Config) -> list[Finding]:
     if not (repo / ".git").exists():
         raise ValueError(f"{repo} no parece un repositorio Git")
 
@@ -74,12 +66,14 @@ def scan_repo(repo: Path) -> list[Finding]:
             elif line.startswith("+++ "):
                 # "+++ b/ruta" = archivo nuevo; "+++ /dev/null" = archivo borrado
                 file = line[6:] if line.startswith("+++ b/") else None
+                if file and config.path_allowed(file):
+                    file = None  # archivo excluido: se ignoran todas sus líneas
             elif line.startswith("@@"):
                 match = HUNK_RE.match(line)
                 if match:
                     line_no = int(match.group(1))
             elif line.startswith("+") and file:
-                findings.extend(check_line(line[1:], commit, file, line_no))
+                findings.extend(check_line(line[1:], commit, file, line_no, config))
                 line_no += 1
 
     if proc.returncode != 0:

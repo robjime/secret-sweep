@@ -1,0 +1,20 @@
+rules:
+  - name: AWS Access Key ID
+    pattern: '\bAKIA[0-9A-Z]{16}\b'
+  - name: GitHub token
+    pattern: '\bgh[pousr]_[A-Za-z0-9]{36,}\b'
+  - name: Clave privada
+    pattern: '-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----'
+  - name: Webhook de Discord
+    pattern: 'https://discord(?:app)?\.com/api/webhooks/\d+/[\w-]+'
+  - name: Token de bot de Telegram
+    pattern: '\b\d{8,10}:[A-Za-z0-9_-]{35}\b'
+  - name: Contraseña o clave asignada
+    pattern: '(?i)[\w-]*(?:password|passwd|pwd|secret|api[_-]?key|token)[\w-]*["'']?\s*[:=]\s*["''][^"''\s]{6,}["'']'
+
+allowlist:
+  # Patrones aplicados al texto detectado: si coincide, se ignora.
+  patterns:
+    - 'AKIAIOSFODNN7EXAMPLE'   # clave de ejemplo de la documentación de AWS
+  # Rutas (estilo glob) que se ignoran por completo. Úsalo con cuidado.
+  paths: []
