@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +11,8 @@ rules:
   - name: AWS Access Key ID
     pattern: '\bAKIA[0-9A-Z]{16}\b'
 """
+
+DEFAULT_RULES = Path(__file__).resolve().parent.parent / "src" / "rules.yaml"
 
 KEY_LINE = 'AWS_KEY = "AKIAIOSFODNN7EXAMPLE"\n'
 
@@ -82,3 +85,11 @@ def test_regex_invalida_da_error_claro(tmp_path):
 
     with pytest.raises(ValueError, match="Rota"):
         load_config(path)
+
+
+def test_regla_de_token_github_fine_grained():
+    config = load_config(DEFAULT_RULES)
+    # Token falso construido en tiempo de ejecución para que no aparezca literal.
+    falso = "github_pat_" + "A" * 30
+
+    assert config.rules["GitHub token (fine-grained)"].search("clave: " + falso)
