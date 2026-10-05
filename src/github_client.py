@@ -15,6 +15,7 @@ class RepoInfo:
     name: str
     clone_url: str
     private: bool
+    html_url: str = ""
 
 
 def get_token() -> str:
@@ -63,7 +64,9 @@ def list_repos(token: str, include_forks: bool = False, session=None) -> list[Re
         for item in items:
             if item["fork"] and not include_forks:
                 continue
-            repos.append(RepoInfo(item["name"], item["clone_url"], item["private"]))
+            repos.append(
+                RepoInfo(item["name"], item["clone_url"], item["private"], item.get("html_url", ""))
+            )
         if len(items) < PER_PAGE:
             return repos
         page += 1
