@@ -3,8 +3,11 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 import requests
+
+from scanner import Finding
 
 API_URL = "https://api.github.com"
 PER_PAGE = 100
@@ -105,3 +108,10 @@ def clone_or_update(repo: RepoInfo, workdir: Path, token: str | None = None) -> 
         args = ["clone", "--quiet", repo.clone_url, str(dest)]
     _run_git(args, token)
     return dest
+
+
+def finding_url(html_url: str, finding: Finding) -> str:
+    """Enlace permanente a la línea exacta, en el commit donde apareció."""
+    if not html_url:
+        return ""
+    return f"{html_url}/blob/{finding.commit}/{quote(finding.file)}#L{finding.line}"

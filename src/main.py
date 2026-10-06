@@ -1,32 +1,27 @@
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
 
 from dotenv import load_dotenv
 
 from baseline import Baseline
 from config import Config, load_config
-from github_client import clone_or_update, get_token, list_repos
+from github_client import clone_or_update, finding_url, get_token, list_repos
 from notifier import Alert, Notifier, format_findings, get_notifier
+from report import RepoResult, build_report, save_report
 from scanner import Finding, scan_repo
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = Path(__file__).with_name("rules.yaml")
 DEFAULT_WORKDIR = ROOT / "repos"
 DEFAULT_BASELINE = ROOT / "baseline.json"
+DEFAULT_REPORTS = ROOT / "reports"
 ENV_FILE = ROOT / ".env"
 
 
 def format_finding(f: Finding, prefix: str = "") -> str:
     return f"{prefix}[{f.rule}] {f.file}:{f.line} (commit {f.commit[:7]}) -> {f.preview}"
-
-
-def finding_url(html_url: str, f: Finding) -> str:
-    """Enlace permanente a la línea exacta, en el commit donde apareció."""
-    if not html_url:
-        return ""
-    return f"{html_url}/blob/{f.commit}/{quote(f.file)}#L{f.line}"
 
 
 def status(count: int, known: int, accepting: bool) -> str:
@@ -78,11 +73,14 @@ def run_local(
     baseline: Baseline,
     reason: str | None,
     notifier: Notifier | None = None,
+    results: list[RepoResult] | None = None,
 ) -> int:
     findings = scan_repo(repo, config)
     accepting = reason is not None
     name = repo.resolve().name
     new, known = report_repo(name, findings, baseline, reason, header=False)
+    if results is not None:
+        results.append(RepoResult(name, new, known))
     if accepting:
         baseline.save()
     print(f"\n{status(len(new), known, accepting)}.")
@@ -99,6 +97,7 @@ def run_github(
     baseline: Baseline,
     reason: str | None,
     notifier: Notifier | None = None,
+    results: list[RepoResult] | None = None,
 ) -> int:
     token = get_token()
     repos = list_repos(token, include_forks)
@@ -115,8 +114,12 @@ def run_github(
         except (ValueError, RuntimeError) as error:
             failed.append(repo.name)
             print(f"[ERROR] {repo.name}: {error}", file=sys.stderr)
+            if results is not None:
+                results.append(RepoResult(repo.name, url=repo.html_url, error=str(error)))
             continue
         new, known = report_repo(repo.name, findings, baseline, reason)
+        if results is not None:
+            results.append(RepoResult(repo.name, new, known, repo.html_url))
         known_total += known
         alerts += [(repo.name, f, finding_url(repo.html_url, f)) for f in new]
 
@@ -196,6 +199,17 @@ def main() -> int:
         action="store_true",
         help="envía un aviso de prueba a Discord y termina",
     )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help="guarda un informe en Markdown con el resultado del análisis",
+    )
+    parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=DEFAULT_REPORTS,
+        help="carpeta donde se guardan los informes (por defecto: reports/)",
+    )
     args = parser.parse_args()
 
     if not args.test_notify and bool(args.repo) == args.github:
@@ -221,11 +235,23 @@ def main() -> int:
         config = load_config(args.config)
         baseline = Baseline(args.baseline) if args.no_baseline else Baseline.load(args.baseline)
         reason = args.accept.strip() if args.accept is not None else None
+        results: list[RepoResult] = []
         if args.github:
-            return run_github(
-                config, args.workdir, args.include_forks, baseline, reason, notifier
+            code = run_github(
+                config, args.workdir, args.include_forks, baseline, reason, notifier, results
             )
-        return run_local(args.repo, config, baseline, reason, notifier)
+            mode = f"GitHub ({len(results)} repositorios)"
+        else:
+            code = run_local(args.repo, config, baseline, reason, notifier, results)
+            mode = f"Local ({args.repo.resolve().name})"
+
+        if args.report:
+            now = datetime.now()
+            text = build_report(
+                results, baseline, mode, reason is not None, now.strftime("%Y-%m-%d %H:%M")
+            )
+            print(f"Informe guardado en: {save_report(args.report_dir, text, now)}")
+        return code
     except (ValueError, RuntimeError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2

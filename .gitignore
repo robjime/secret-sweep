@@ -5,3 +5,4 @@ __pycache__/
 repos/
 reports/
 baseline.json
+gitleaks*.json
