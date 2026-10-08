@@ -1,3 +1,13 @@
+"""Informe de análisis en Markdown.
+
+Convierte los resultados del escáner en un documento legible. Del escáner solo se
+usa la ubicación de cada hallazgo (regla, archivo, línea y commit): ni el valor del
+secreto ni su versión enmascarada (`Finding.preview`) llegan al informe.
+
+Ojo: los textos libres se copian tal cual (motivos de la línea base, mensajes de
+error, rutas y nombres), así que no deben contener secretos.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -9,6 +19,17 @@ from scanner import Finding
 
 @dataclass
 class RepoResult:
+    """Resultado del análisis de un repositorio.
+
+    Attributes:
+        name: Nombre del repositorio.
+        new: Hallazgos que no estaban en la línea base. Con `--accept`, son los que
+            se acaban de aceptar.
+        known: Cuántos hallazgos se omitieron por estar ya en la línea base.
+        url: Enlace web del repositorio (vacío en un análisis local).
+        error: Mensaje de error si el análisis falló, o None si fue bien.
+    """
+
     name: str
     new: list[Finding] = field(default_factory=list)
     known: int = 0
@@ -17,11 +38,29 @@ class RepoResult:
 
 
 def _cell(text: object) -> str:
-    """Escapa un texto para que no rompa una tabla de Markdown."""
+    """Neutraliza lo que rompe una tabla de Markdown: `|`, comillas invertidas y saltos.
+
+    Escapa las barras verticales (`|` pasa a `\\|`), cambia las comillas invertidas
+    por comillas simples (el texto suele ir dentro de un fragmento de código con
+    comillas invertidas) y convierte los saltos de línea en espacios. No toca el
+    resto de Markdown: un texto como `[a](http://b)` seguiría siendo un enlace.
+
+    Args:
+        text: Valor a escapar; se convierte a texto.
+
+    Returns:
+        El texto, apto para una celda de tabla.
+    """
     return str(text).replace("|", "\\|").replace("`", "'").replace("\n", " ")
 
 
 def _commit(finding_commit: str, url: str) -> str:
+    """Formatea el commit como sus 7 primeros caracteres, con enlace si hay URL.
+
+    Args:
+        finding_commit: Hash completo del commit.
+        url: Enlace al archivo en ese commit, o cadena vacía.
+    """
     short = f"`{finding_commit[:7]}`"
     return f"[{short}]({url})" if url else short
 
@@ -33,7 +72,30 @@ def build_report(
     accepting: bool,
     generated_at: str,
 ) -> str:
-    """Informe en Markdown. Nunca incluye valores de secretos, solo su ubicación."""
+    """Construye el informe completo en Markdown.
+
+    Secciones, en orden: cabecera con el resumen general, tabla por repositorio,
+    hallazgos nuevos (o aceptados en esta ejecución), repositorios que no se
+    pudieron analizar (solo si hay alguno), hallazgos ya revisados de la línea base
+    (solo si hay alguno, y solo de los repositorios de `results`) y un aviso final.
+
+    No escribe en disco ni modifica sus argumentos. No usa `Finding.preview`.
+
+    Args:
+        results: Resultado de cada repositorio analizado.
+        baseline: Línea base de la que salen los hallazgos ya revisados. Cada entrada
+            debe tener `reason` y `date`.
+        mode: Descripción del origen (por ejemplo, "Local (mi-repo)" o
+            "GitHub (10 repositorios)").
+        accepting: True si se ejecutó con `--accept`: cambia los títulos y estados.
+        generated_at: Fecha y hora, ya formateadas como texto.
+
+    Returns:
+        El informe, como texto Markdown.
+
+    Raises:
+        KeyError: Si una entrada de la línea base no tiene `reason` o `date`.
+    """
     errors = [r for r in results if r.error]
     total_new = sum(len(r.new) for r in results)
     total_known = sum(r.known for r in results)
@@ -109,6 +171,22 @@ def build_report(
 
 
 def save_report(directory: Path, text: str, now: datetime) -> Path:
+    """Guarda el informe en `informe-AAAAMMDD-HHMMSS.md` dentro de `directory`.
+
+    Crea la carpeta si no existe y escribe en UTF-8 con saltos de línea LF. Si ya
+    hay un informe con el mismo nombre (dos en el mismo segundo), lo sobrescribe.
+
+    Args:
+        directory: Carpeta de destino.
+        text: Contenido del informe.
+        now: Instante usado para dar nombre al archivo.
+
+    Returns:
+        La ruta del archivo (relativa si `directory` lo es).
+
+    Raises:
+        OSError: Si no se puede crear la carpeta o escribir el archivo.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / now.strftime("informe-%Y%m%d-%H%M%S.md")
     path.write_text(text, encoding="utf-8", newline="\n")
